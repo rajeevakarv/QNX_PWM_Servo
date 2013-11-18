@@ -17,6 +17,7 @@
 
 /*Digital input output port configuration,*/
 #define DIO_BASE_ADDR 0x280                //Base Address for Ports
+#define DIO_PORTC_ADDR 0x0A                                   //Base Address for Port_B
 #define DIO_PORTB_ADDR 0x09                                   //Base Address for Port_B
 #define DIO_PORTA_ADDR 0x08
 #define DIO_CTL_ADDR 0x0B
@@ -39,13 +40,17 @@ int first_reading = 0;
 
 /* Handlers for port-A and port-B */
 uintptr_t ctrl_handle_portB;
+uintptr_t ctrl_handle_portC;
 uintptr_t PORTA;
 
 /*Structures for timers used.*/
 struct timespec my_timer_value1;
+struct timespec my_timer_value2;
 
 /*Threads functions.*/
-void *generate_pulse( void *ptr );
+void *generate_pulse_servoA( void *ptr );
+void *generate_pulse_servoB( void *ptr );
+
 void *out_pulse( void *ptr );
 int step_size_servoA = 20;
 int step_size_servoB = 20;
@@ -219,15 +224,15 @@ void initializeCommands(void)
 
     // set the pointer back to the beginning of the buffer.
     servoA.currentCommand = &bufferServoA;
-/*
+
     // Fill in the commands for servo B
-    *(servoB.currentCommand) = myCommand+5;
-    servoB.currentCommand++;
     *(servoB.currentCommand) = myCommand+0;
+    servoB.currentCommand++;
+    *(servoB.currentCommand) = myCommand+5;
     servoB.currentCommand++;
     *(servoB.currentCommand) = myCommand+4;
     servoB.currentCommand++;
-    *(servoB.currentCommand) = myCommand+0;
+    *(servoB.currentCommand) = myCommand+1;
     servoB.currentCommand++;
     *(servoB.currentCommand) = myCommand+5;
     servoB.currentCommand++;
@@ -289,7 +294,7 @@ void initializeCommands(void)
     *(servoB.currentCommand) = myCommand+5;
     servoB.currentCommand++;
     *(servoB.currentCommand) = myCommand;
-    servoB.currentCommand++;*/
+    servoB.currentCommand++;
     *(servoB.currentCommand) = RECIPE_END;
 
     // set the pointer back to the beginning of the buffer.
@@ -774,7 +779,7 @@ void updateTaskStatus(struct TaskControlBlock* servo)
 }
 int fetch_counter = 0;
 
-void *generate_pulse( void *ptr )
+void *generate_pulse_servoA( void *ptr )
 {
      printf("Timer Thread.\n");
 	int privity_err;
@@ -821,8 +826,12 @@ void *generate_pulse( void *ptr )
                     	  if(servo1UserInput != 'p' || servo1UserInput != 'e'){
                     		  my_timer_value1.tv_nsec = step_size_servoA * 100000;
                     		  out8( ctrl_handle_portB, HIGH );
+                    		  //ctrl_handle_portB = ctrl_handle_portB | 0x01;
                     		  nanospin(&my_timer_value1);
-                    		  out8( ctrl_handle_portB, LOW );}
+                    		  out8( ctrl_handle_portB, LOW );
+                    		  //ctrl_handle_portB = ctrl_handle_portB & 0xFE;
+                    		  }
+
                     	  if (servo1UserInput == 'x')
                     	  {
                     		  printf("\n Pulse Generator : Exiting\n");
@@ -835,15 +844,81 @@ void *generate_pulse( void *ptr )
    pthread_exit(NULL);
 }
 
+void *generate_pulse_servoB( void *ptr )
+{
+     printf("Timer Thread.\n");
+
+	int privity_err;
+    privity_err = ThreadCtl( _NTO_TCTL_IO, NULL );
+    if ( privity_err == -1 )
+    {
+        fprintf( stderr, "can't get root permissions\n" );
+        pthread_exit(NULL);
+     }
+    struct sigevent         event;
+             struct itimerspec       itime;
+             timer_t                 timer_id;
+             int                     chid, rcvid;
+             my_message_t            msg;
+
+             chid = ChannelCreate(0);
+
+             event.sigev_notify = SIGEV_PULSE;
+             event.sigev_coid = ConnectAttach(ND_LOCAL_NODE, 0,
+                                                chid,
+                                                _NTO_SIDE_CHANNEL, 0);
+             event.sigev_priority = getprio(0);
+             event.sigev_code = MY_PULSE_CODE;
+             timer_create(CLOCK_REALTIME, &event, &timer_id);
+
+             itime.it_value.tv_sec = 0;
+             /* 100 ms = .1 secs */
+             itime.it_value.tv_nsec = 20000000;
+             itime.it_interval.tv_sec = 0;
+             /* 100 ms = .1 secs */
+             itime.it_interval.tv_nsec = 20000000;
+             timer_settime(timer_id, 0, &itime, NULL);
+             // This for loop will update the global_time for every 100 ms which is 1 minute in simulation time.
+             for (;;) {
+                 rcvid = MsgReceive(chid, &msg, sizeof(msg), NULL);
+                 if (rcvid == 0) { /* we got a pulse */
+                      if (msg.pulse.code == MY_PULSE_CODE) {
+                    	  fetch_counter++;
+                    	  if(fetch_counter == 20 /*&& user_input == 1*/)
+                    	  {
+                    		  runTasks();
+                    		  fetch_counter = 0;
+                    	  }
+                    	  if(servo2UserInput != 'p' || servo2UserInput != 'e'){
+                    		  my_timer_value2.tv_nsec = step_size_servoB * 100000;
+                    		  out8( ctrl_handle_portC, HIGH );
+                    		  nanospin(&my_timer_value2);
+                    		  out8( ctrl_handle_portC, LOW );}
+                    	  if (servo1UserInput == 'x')
+                    	  {
+                    		  printf("\n Pulse Generator : Exiting\n");
+                    		  pthread_exit(NULL);//Rajeev
+                    	  }
+                      } /* else other pulses ... */
+                 } /* else other messages ... */
+        }
+
+   printf("\n Pulse Generator : Exiting\n");    //Debug log
+   pthread_exit(NULL);
+}
+
 int main( )
 {
-	int privity_err, servothread ;
+	int privity_err, servoAthread, servoBthread;
     uintptr_t ctrl_handle_portCTL;
-    pthread_t thread1;
+    pthread_t thread1, thread2;
 
     //my_timer_value1.tv_nsec = 1000;
     my_timer_value1.tv_nsec = 1500000;
     my_timer_value1.tv_sec = 0;
+
+    my_timer_value2.tv_nsec = 1500000;
+    my_timer_value2.tv_sec = 0;
 
     /* Give this thread root permissions to access the hardware */
     privity_err = ThreadCtl( _NTO_TCTL_IO, NULL );
@@ -855,13 +930,17 @@ int main( )
 
     /* Get a handle to the DIO port's Control register */
     ctrl_handle_portB = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_PORTB_ADDR );
+    ctrl_handle_portC = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_PORTC_ADDR );
     ctrl_handle_portCTL = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_CTL_ADDR);
     PORTA = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_PORTA_ADDR );
 
     /* Initialize the DIO port */
-    out8( ctrl_handle_portCTL, 0x10 );
+    out8( ctrl_handle_portCTL, 0x80 );
     out8( ctrl_handle_portB, LOW );
-    servothread = pthread_create( &thread1, NULL, generate_pulse, NULL);
+    out8( ctrl_handle_portC, LOW );
+    servoAthread = pthread_create( &thread1, NULL, generate_pulse_servoA, NULL);
+    servoBthread = pthread_create( &thread2, NULL, generate_pulse_servoB, NULL);
+
     //int timer = 0;
 
     // This function has to be before the InitializeTimer function.
