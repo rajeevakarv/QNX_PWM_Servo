@@ -19,7 +19,7 @@
 #define DIO_BASE_ADDR 0x280                //Base Address for Ports
 #define DIO_PORTC_ADDR 0x0A                                   //Base Address for Port_B
 #define DIO_PORTB_ADDR 0x09                                   //Base Address for Port_B
-#define DIO_PORTA_ADDR 0x08
+
 #define DIO_CTL_ADDR 0x0B
 #define MY_PULSE_CODE   _PULSE_CODE_MINAVAIL
 
@@ -38,10 +38,9 @@ int end_time = 0;
 int diff =0;
 int first_reading = 0;
 
-/* Handlers for port-A and port-B */
+/* Handlers for port-B and port-C*/
 uintptr_t ctrl_handle_portB;
 uintptr_t ctrl_handle_portC;
-uintptr_t PORTA;
 
 /*Structures for timers used.*/
 struct timespec my_timer_value1;
@@ -160,7 +159,7 @@ void initializeCommands(void)
     myCommand5 = BREAK_LOOP;
 
     // Fill in the commands for servo A
-    *(servoA.currentCommand) = myCommand+5;
+    *(servoA.currentCom
     servoA.currentCommand++;
     *(servoA.currentCommand) = myCommand+0;
     servoA.currentCommand++;
@@ -365,8 +364,6 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, int 
            if(servo == &servoA)
               {
         	     servo1UserInput = 'e';
-                 // Set the status LED for this commands.
-                 PORTA = PORTA | 0x20;
 
                  // Flag is set for reciepe end so that the servo will not process any more commands.
                  reciepeEndServoA = 1;
@@ -374,8 +371,6 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, int 
               else if(servo == &servoB)
               {
             	  servo1UserInput = 'e';
-                 // Set the status LED for this commands.
-                 PORTA = PORTA | 0x02;
 
                  // Flag is set for reciepe end so that the servo will not process any more commands.
                  reciepeEndServoB = 1;
@@ -486,11 +481,8 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, int 
             if(servo == &servoA)
             {
               printf("\r\nprocessCommand: Nested Loop Error for servoA\r\n");
-              PORTA = PORTA | 0x40;        // Reciepy command error.
             } else if(servo == &servoB){
               printf("\r\nprocessCommand: Nested Loop Error for servoB\r\n");
-              PORTA = PORTA | 0x04;        // Reciepy command error.
-
             }
          }
 
@@ -504,7 +496,6 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, int 
         {
            // Go back to the instruction after the LOOP_START command.
            servo->currentCommand = servo->firstLoopInstruction;
-
            // deincrement the loop counter.
            --(servo->loopCounter);
         }
@@ -514,8 +505,6 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, int 
            // go to the next instruction.
            servo->loopFlag = FALSE;
            servo->firstLoopInstruction = 0;
-
-
            if(servo == &servoA || servo == &servoB)
            {
              // increment the command buffer;
@@ -551,10 +540,8 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, int 
         if(servo == &servoA)
         {
            printf("\r\nprocessCommand: undefined command for servoA\r\n");
-           PORTA = PORTA | 0x80;        // Recipe command error.
         } else if(servo == &servoB){
            printf("\r\nprocessCommand: undefined command for servoB\r\n");
-           PORTA = PORTA | 0x08;        // Recipe command error.
         }
         else
         {
@@ -573,14 +560,12 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, int 
 void processUserCommand(void)
 {
    // process command
-
-     // process the continue command.
+   // process the continue command.
    if((servo1UserInput == 'c' || servo1UserInput == 'C') &&
        servoA.status != error && (firstThree(*servoA.currentCommand)) != RECIPE_END)
    {
 	   printf("It is continue.\n");
       servoA.status  = running;
-      PORTA = PORTA & 0xEF;
       //printf("\r\n processUserCommand: servoA.status = running\r\n");
    }
 
@@ -588,7 +573,6 @@ void processUserCommand(void)
       servoB.status != error && (firstThree(*servoB.currentCommand)) != RECIPE_END)
    {
       servoB.status  = running;
-      PORTA = PORTA & 0xFE;
      // printf("\r\n processUserCommand: servoB.status = running\r\n");
    }
 
@@ -599,7 +583,6 @@ void processUserCommand(void)
 	   printf("It is continue.\n");
       printf("\r\nYou have following options: \n\r l = Move left \n\r r = Move Right\n\r s = Switch Reciepe\n\r c = Continue reciepe\n\r n = no-op\n\r b = Restart reciepe");
       servoA.status  = paused;
-      PORTA = PORTA | 0x10;
       //printf("\r\n processUserCommand: servoA.status = paused\r\n");
    }
 
@@ -607,7 +590,6 @@ void processUserCommand(void)
       servoB.status != error && (firstThree(*servoB.currentCommand)) != RECIPE_END)
    {
       servoB.status = paused;
-      PORTA = PORTA | 0x01;
       //printf("\r\n processUserCommand: servoB.status = paused\r\n");
    }
 
@@ -616,7 +598,6 @@ void processUserCommand(void)
    {
       servoA.currentCommand = &bufferServoA;
       servoA.status  = ready;
-      PORTA = PORTA & 0x0F;
       reciepeEndServoA = 0;
       servoA.loopFlag = FALSE;
       //printf("\r\n processUserCommand: B is pressed for ServoA.\r\n");
@@ -626,7 +607,6 @@ void processUserCommand(void)
    {
       servoB.currentCommand = &bufferServoB;
       servoB.status = ready;
-      PORTA = PORTA & 0xF0;
       reciepeEndServoB = 0;
       servoB.loopFlag = FALSE;
       //printf("\r\n processUserCommand: B is pressed for ServoB\r\n");
@@ -717,7 +697,6 @@ void runTasks(void)
 {
    // first process the user commands
    processUserCommand();
-
    // then run the recipies based on the changes from the processUserCommand
    // function.
    if(servoA.status  == ready && reciepeEndServoA != 1)
@@ -757,13 +736,10 @@ void updateTaskStatus(struct TaskControlBlock* servo)
 
    // We are processing a command
    if(servo->status  == running) {
-
       //printf("\r\nprocessCommand: updateTaskStatus servo->timeLeftms %u\r\n", servo->timeLeftms);
-
       if(servo->timeLeftms > 0)
       {
         //printf("\r\n updateTaskStatus: updateTime == TRUE && servo->timeLeftms > 0\r\n");
-
         servo->timeLeftms -=100;
       }
       else
@@ -772,7 +748,6 @@ void updateTaskStatus(struct TaskControlBlock* servo)
         // position and update the task status to ready.
         servo->currentServoPosition = servo->expectedServoPosition;
         servo->status = ready;
-
         //printf("\r\n updateTaskStatus: servostatus = ready\r\n");
       }
    }
@@ -781,7 +756,6 @@ int fetch_counter = 0;
 
 void *generate_pulse_servoA( void *ptr )
 {
-     printf("Timer Thread.\n");
 	int privity_err;
     privity_err = ThreadCtl( _NTO_TCTL_IO, NULL );
     if ( privity_err == -1 )
@@ -846,8 +820,6 @@ void *generate_pulse_servoA( void *ptr )
 
 void *generate_pulse_servoB( void *ptr )
 {
-     printf("Timer Thread.\n");
-
 	int privity_err;
     privity_err = ThreadCtl( _NTO_TCTL_IO, NULL );
     if ( privity_err == -1 )
@@ -932,7 +904,6 @@ int main( )
     ctrl_handle_portB = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_PORTB_ADDR );
     ctrl_handle_portC = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_PORTC_ADDR );
     ctrl_handle_portCTL = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_CTL_ADDR);
-    PORTA = mmap_device_io( PORT_LENGTH, DIO_BASE_ADDR + DIO_PORTA_ADDR );
 
     /* Initialize the DIO port */
     out8( ctrl_handle_portCTL, 0x80 );
@@ -940,8 +911,6 @@ int main( )
     out8( ctrl_handle_portC, LOW );
     servoAthread = pthread_create( &thread1, NULL, generate_pulse_servoA, NULL);
     servoBthread = pthread_create( &thread2, NULL, generate_pulse_servoB, NULL);
-
-    //int timer = 0;
 
     // This function has to be before the InitializeTimer function.
     initializeServos();
@@ -957,10 +926,8 @@ int main( )
     	   servo1UserInput = user_input[0];
     	   servo2UserInput = user_input[1];
     }
-
-
-       printf("Out of loop.\n");
-       pthread_join(thread1, NULL);
-       return 0;
+    printf("Out of loop.\n");
+    pthread_join(thread1, NULL);
+    return 0;
 }
 
